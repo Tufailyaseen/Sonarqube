@@ -1,0 +1,103 @@
+#!/usr/bin/env groovy
+pipeline {
+   agent any
+   environment {
+        EMAIL_TO = 'malik.tufail@zigron.com'
+        
+    }
+   stages {
+        stage('Checkout') {
+            steps {
+                sh "rm * -r" 
+                sh "rm -r -f  gitclone"
+                sh "mkdir gitclone"
+                
+               dir ('gitclone') {
+                    checkout([$class: 'GitSCM', branches: [[name: '*/dev']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[url: 'https://github.com/Tufailyaseen/Sonarqube.git']]])
+                }
+                 sh "ls -lart ./*"
+            }
+        }
+        
+        stage('Build'){
+            steps
+            {
+            
+            // sh 'mvn install:install-file "-Dfile=cobra.jar" "-DgroupId=com.cobra" "-DartifactId=cobra" "-Dversion=0.98.4" "-Dpackaging=jar" "-DgeneratePom=true"'
+            
+             dir ('gitclone'){
+                   sh "docker stop nginx_comp_alpine  nginx_comp_ubt nginx_comp_centos"
+                  sh "docker rm  nginx_comp_alpine  nginx_comp_ubt nginx_comp_centos"
+
+                  
+
+                   }
+                 
+               
+            
+        }
+   }
+   stage ('Test'){
+       steps {
+          
+                dir('gitclone'){
+                 
+               sh "docker-compose build"
+               sh "docker-compose up -d"
+            }
+       }
+   }
+ stage('SonarQube analysis') {
+        steps {
+            script{
+            def scannerHome = tool 'SonarQube';
+            withSonarQubeEnv('sonarqube 9.3') {
+                sh "${tool("SonarQube")}/bin/sonar-scanner \
+                    -Dsonar.projectKey=jsapp \
+                    -Dsonar.projectName=jsapp"
+            }
+            }
+        }
+    }
+
+stage("Quality gate") {
+            steps {
+                waitForQualityGate abortPipeline: true
+            }
+        }
+  
+}
+
+
+post {
+        failure {
+            emailext body: 'Check console output at $BUILD_URL to view the results. \n\n ${CHANGES} \n\n -------------------------------------------------- \n${BUILD_LOG, maxLines=100, escapeHtml=false}', 
+                    to: "${EMAIL_TO}", 
+                    subject: 'Build failed in Jenkins: $PROJECT_NAME - #$BUILD_NUMBER'
+        }
+        unstable {
+            emailext body: 'Check console output at $BUILD_URL to view the results. \n\n ${CHANGES} \n\n -------------------------------------------------- \n${BUILD_LOG, maxLines=100, escapeHtml=false}', 
+                    to: "${EMAIL_TO}", 
+                    subject: 'Unstable build in Jenkins: $PROJECT_NAME - #$BUILD_NUMBER'
+        }
+        changed {
+            emailext body: 'Check console output at $BUILD_URL to view the results.', 
+                    to: "${EMAIL_TO}", 
+                    subject: 'Jenkins build is back to normal: $PROJECT_NAME - #$BUILD_NUMBER'
+        }
+        success {
+            emailext body: 'Check console output at $BUILD_URL to view the results.', 
+                    to: "${EMAIL_TO}", 
+                    subject: 'Successfull build: $PROJECT_NAME - #$BUILD_NUMBER'
+            
+        }
+        aborted{
+            emailext body: 'Check console output at $BUILD_URL to view the results.', 
+                    to: "${EMAIL_TO}", 
+                    subject: 'Build Abort: $PROJECT_NAME - #$BUILD_NUMBER'
+            
+        }
+  
+}
+}
+
